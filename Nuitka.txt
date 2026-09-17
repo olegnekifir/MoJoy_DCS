@@ -1,0 +1,1 @@
+python -m nuitka --onefile --windows-console-mode=disable --windows-icon-from-ico=logo.ico --include-data-files="C:\Users\4227~1\AppData\Local\Programs\Python\Python312\Lib\site-packages\vgamepad\win\vigem\client\x64\ViGEmClient.dll=vgamepad/win/vigem/client/x64/ViGEmClient.dll" --remove-output "MoJoy_DCS.py"
