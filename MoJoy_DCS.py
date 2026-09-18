@@ -578,6 +578,16 @@ class Api:
         threading.Thread(target=capture_key_thread, args=(bind_name,), daemon=True).start()
         return True
 
+    def reset_config(self):
+        with LOCK:
+            STATE["sensitivity"] = 0.0
+            STATE["bind_toggle"] = "kbd:caps lock"
+            STATE["bind_reset"] = "ms:3"
+            state = dict(STATE)
+        apply_hotkeys()
+        save_config()
+        return state
+
 
 # UI
 HTML_CONTENT = """<!DOCTYPE html>
@@ -815,6 +825,25 @@ HTML_CONTENT = """<!DOCTYPE html>
     opacity: 0.6;
     cursor: default;
   }
+
+  .btn-reset-config {
+    width: 100%;
+    margin-top: 4px;
+    padding: 12px;
+    border: 1px solid #ef4444;
+    border-radius: 12px;
+    background: #ef4444;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-reset-config:hover {
+    background: transparent;
+    color: #ef4444;
+  }
 </style>
 </head>
 <body>
@@ -868,6 +897,8 @@ HTML_CONTENT = """<!DOCTYPE html>
         <button class="btn-rebind" id="bind_reset_btn" onclick="onRebindClick('bind_reset')">Изменить</button>
       </div>
     </div>
+
+    <button class="btn-reset-config" onclick="onResetConfigClick()">Сбросить конфигурацию</button>
   </div>
 
 <script>
@@ -918,6 +949,14 @@ async function onRebindClick(bindName) {
   btn.disabled = true;
   btn.textContent = "Ждём...";
   await window.pywebview.api.start_key_capture(bindName);
+}
+
+async function onResetConfigClick() {
+  const state = await window.pywebview.api.reset_config();
+  document.getElementById("sens").value = state.sensitivity;
+  document.getElementById("sensVal").textContent = Number(state.sensitivity).toFixed(1);
+  updateBindUI('bind_toggle', state.bind_toggle);
+  updateBindUI('bind_reset', state.bind_reset);
 }
 
 async function init() {
