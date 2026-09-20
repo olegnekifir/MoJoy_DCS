@@ -48,4 +48,10 @@
 python -m nuitka --onefile --windows-console-mode=disable --windows-icon-from-ico=logo.ico --include-data-files="C:\Users\4227~1\AppData\Local\Programs\Python\Python312\Lib\site-packages\vgamepad\win\vigem\client\x64\ViGEmClient.dll=vgamepad/win/vigem/client/x64/ViGEmClient.dll" --include-data-files="C:\MoJoy_DCS\bin\driver.exe=bin/driver.exe" --remove-output "MoJoy_DCS.py"
 ```
 
-ИЗМЕНИТЕ ПОЖАЛУЙСТА ПУТЬ ДО "driver.exe" ОН У ВАС БУДЕТ ОТЛИЧАТЬСЯ И ТАКЖЕ ЕСЛИ НЕ СОБИРАЕТСЯ, ПРОВЕРЬТЕ ГДЕ ФИЗИЧЕСКИ НАХОДИТСЯ ФАЙЛ БИБЛИОТЕКИ ЧЕРЕЗ КОММАНДУ В КОНСОЛИ (Терминале) ЧЕРЕЗ КОМАНДУ "python -c "import sys; from pathlib import Path; print(*[p for p in [next(Path(sp).rglob('ViGEmClient.dll'), None) for sp in sys.path if Path(sp).is_dir()] if p], sep='\n')"" ПУТЬ ДОЛЖЕН ВЫГЛЯДЕТЬ НА КОНЦЕ ТАК: "vgamepad\win\vigem\client\x64\ViGEmClient.dll"
+Измените пожалуйста путь до файла-установщика ViGEmBus "driver.exe" Он у вас будет отличаться и также если не собирается .exe-файл, проверьте где находится файл библиотеки через Консоль (Терминале) данной командой:
+
+```cmd
+python -c "import sys; from pathlib import Path; print(*[p for p in [next(Path(sp).rglob('ViGEmClient.dll'), None) for sp in sys.path if Path(sp).is_dir()] if p], sep='\n')
+```
+
+Путь на конце должен выглядеть так: *vgamepad\win\vigem\client\x64\ViGEmClient.dll*
