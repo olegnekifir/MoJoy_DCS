@@ -8,6 +8,7 @@ import time
 import atexit
 import traceback
 
+#Если программа запущена без консоли, подставляем пустые потоки ввода-вывода, чтобы библиотеки не падали
 if sys.stdout is None:
     sys.stdout = open(os.devnull, "w")
 if sys.stderr is None:
@@ -15,28 +16,32 @@ if sys.stderr is None:
 if sys.stdin is None:
     sys.stdin = open(os.devnull, "r")
 
+#Подключение библиотек интерфейса и клавиатуры; при ошибке показываем окно с текстом ошибки и выходим
+#vgamepad подключается позже: при импорте он сразу обращается к драйверу и без него падает
 try:
     import webview
-    import vgamepad as vg
     import keyboard
 except Exception:
     ctypes.windll.user32.MessageBoxW(None, traceback.format_exc(), "MoJoy DCS — ошибка запуска", 0x10)
     sys.exit(1)
 
 
-# Windows API
+#Windows API
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
 
+#Константы Raw Input (ввод с мыши) и скрытого окна
 WM_INPUT = 0x00FF
 RID_INPUT = 0x10000003
 RIM_TYPEMOUSE = 0
 RIDEV_INPUTSINK = 0x00000100
 HWND_MESSAGE = -3
 
+#Маска указателя: превращает знаковое значение lparam в корректный адрес (для 32 и 64 бит)
 PTR_MASK = (1 << (ctypes.sizeof(ctypes.c_void_p) * 8)) - 1
 
 
+#Класс окна: параметры скрытого окна, которое принимает сообщения Raw Input
 class WNDCLASSW(ctypes.Structure):
     _fields_ = [
         ("style", ctypes.c_uint32),
@@ -52,6 +57,7 @@ class WNDCLASSW(ctypes.Structure):
     ]
 
 
+#Устройство Raw Input: указываем, ввод какого устройства (мышь) хотим получать
 class RAWINPUTDEVICE(ctypes.Structure):
     _fields_ = [
         ("usUsagePage", ctypes.c_ushort),
@@ -61,6 +67,7 @@ class RAWINPUTDEVICE(ctypes.Structure):
     ]
 
 
+#Заголовок пакета Raw Input: тип устройства и размер данных
 class RAWINPUTHEADER(ctypes.Structure):
     _fields_ = [
         ("dwType", ctypes.c_uint32),
@@ -70,6 +77,7 @@ class RAWINPUTHEADER(ctypes.Structure):
     ]
 
 
+#Флаги и данные кнопок мыши
 class _RAWMOUSE_BUTTONS(ctypes.Structure):
     _fields_ = [
         ("usButtonFlags", ctypes.c_ushort),
@@ -77,6 +85,7 @@ class _RAWMOUSE_BUTTONS(ctypes.Structure):
     ]
 
 
+#Кнопки мыши можно прочитать целиком (ulButtons) или по частям (buttons)
 class _RAWMOUSE_UNION(ctypes.Union):
     _fields_ = [
         ("ulButtons", ctypes.c_uint32),
@@ -84,6 +93,7 @@ class _RAWMOUSE_UNION(ctypes.Union):
     ]
 
 
+#Данные мыши из Raw Input: смещение по X и Y (lLastX, lLastY) и состояние кнопок
 class RAWMOUSE(ctypes.Structure):
     _anonymous_ = ("u",)
     _fields_ = [
@@ -96,6 +106,7 @@ class RAWMOUSE(ctypes.Structure):
     ]
 
 
+#Пакет Raw Input целиком: заголовок и данные мыши
 class RAWINPUT(ctypes.Structure):
     _fields_ = [
         ("header", RAWINPUTHEADER),
@@ -103,6 +114,7 @@ class RAWINPUT(ctypes.Structure):
     ]
 
 
+#Константы и тип для эмуляции клавиш через SendInput (скан-коды: левый Alt и клавиша C)
 ULONG_PTR = ctypes.c_uint64 if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_uint32
 INPUT_KEYBOARD = 1
 KEYEVENTF_KEYUP = 0x0002
@@ -111,6 +123,7 @@ SCAN_LEFT_ALT = 0x38
 SCAN_C = 0x2E
 
 
+#Событие клавиатуры для SendInput
 class KEYBDINPUT(ctypes.Structure):
     _fields_ = [
         ("wVk", ctypes.c_ushort),
@@ -121,6 +134,7 @@ class KEYBDINPUT(ctypes.Structure):
     ]
 
 
+#Событие мыши для SendInput (не используется, но нужно, чтобы размер структуры совпал с системным)
 class MOUSEINPUT(ctypes.Structure):
     _fields_ = [
         ("dx", ctypes.c_int32),
@@ -132,6 +146,7 @@ class MOUSEINPUT(ctypes.Structure):
     ]
 
 
+#Событие оборудования для SendInput (то же самое: нужно для правильного размера структуры)
 class HARDWAREINPUT(ctypes.Structure):
     _fields_ = [
         ("uMsg", ctypes.c_uint32),
@@ -140,6 +155,7 @@ class HARDWAREINPUT(ctypes.Structure):
     ]
 
 
+#Объединение: SendInput принимает событие клавиатуры, мыши или оборудования
 class INPUT_UNION(ctypes.Union):
     _fields_ = [
         ("ki", KEYBDINPUT),
@@ -148,6 +164,7 @@ class INPUT_UNION(ctypes.Union):
     ]
 
 
+#Структура INPUT для SendInput: тип события и его данные
 class SENDINPUT_STRUCT(ctypes.Structure):
     _anonymous_ = ("u",)
     _fields_ = [
@@ -156,11 +173,18 @@ class SENDINPUT_STRUCT(ctypes.Structure):
     ]
 
 
+#Описание функций WinAPI для ctypes: restype - что функция возвращает,
+#argtypes - какие аргументы принимает
+#Без этого ctypes неправильно передаёт указатели и дескрипторы на 64-битной системе
+
+#Тип функции-обработчика сообщений окна (оконная процедура)
 WNDPROCTYPE = ctypes.WINFUNCTYPE(wintypes.LPARAM, wintypes.HWND, ctypes.c_uint32, wintypes.WPARAM, wintypes.LPARAM)
 
+#Регистрация класса окна
 user32.RegisterClassW.restype = ctypes.c_ushort
 user32.RegisterClassW.argtypes = [ctypes.POINTER(WNDCLASSW)]
 
+#Создание окна (у нас - скрытое окно-приёмник сообщений)
 user32.CreateWindowExW.restype = wintypes.HWND
 user32.CreateWindowExW.argtypes = [
     ctypes.c_uint32, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32,
@@ -168,41 +192,104 @@ user32.CreateWindowExW.argtypes = [
     wintypes.HWND, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
 ]
 
+#Обработка сообщений окна по умолчанию
 user32.DefWindowProcW.restype = wintypes.LPARAM
 user32.DefWindowProcW.argtypes = [wintypes.HWND, ctypes.c_uint32, wintypes.WPARAM, wintypes.LPARAM]
 
+#Подписка на Raw Input (получаем движение и кнопки мыши, даже когда окно не в фокусе)
 user32.RegisterRawInputDevices.restype = ctypes.c_int
 user32.RegisterRawInputDevices.argtypes = [ctypes.POINTER(RAWINPUTDEVICE), ctypes.c_uint32, ctypes.c_uint32]
 
+#Чтение данных Raw Input из сообщения WM_INPUT
 user32.GetRawInputData.restype = ctypes.c_uint32
 user32.GetRawInputData.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32]
 
+#Получение сообщения из очереди (основа цикла сообщений)
 user32.GetMessageW.restype = ctypes.c_int
 user32.GetMessageW.argtypes = [ctypes.POINTER(wintypes.MSG), wintypes.HWND, ctypes.c_uint32, ctypes.c_uint32]
 
+#Обработка сообщения и отправка его в оконную процедуру
 user32.TranslateMessage.argtypes = [ctypes.POINTER(wintypes.MSG)]
 user32.DispatchMessageW.argtypes = [ctypes.POINTER(wintypes.MSG)]
 
+#Размеры экрана
 user32.GetSystemMetrics.restype = ctypes.c_int
 user32.GetSystemMetrics.argtypes = [ctypes.c_int]
 
+#Установка позиции курсора (возвращаем его в центр экрана)
 user32.SetCursorPos.restype = ctypes.c_int
 user32.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
 
+#Отправка эмулированных нажатий клавиш
 user32.SendInput.restype = ctypes.c_uint32
 user32.SendInput.argtypes = [ctypes.c_uint32, ctypes.c_void_p, ctypes.c_int]
 
+#Дескриптор текущего модуля (нужен при регистрации окна)
 kernel32.GetModuleHandleW.restype = ctypes.c_void_p
 kernel32.GetModuleHandleW.argtypes = [ctypes.c_wchar_p]
 
+#Запуск установщика драйвера: shell32 позволяет запустить программу от имени администратора
+shell32 = ctypes.WinDLL("shell32", use_last_error=True)
 
-# Конфиги и глобальные переменные
+#Константы для запуска установщика (получить дескриптор процесса, код отмены UAC) и для окна с ошибкой
+SEE_MASK_NOCLOSEPROCESS = 0x00000040
+SEE_MASK_NOASYNC = 0x00000100
+SW_SHOWNORMAL = 1
+INFINITE = 0xFFFFFFFF
+ERROR_CANCELLED = 1223
+MB_ICONERROR = 0x00000010
+MB_TOPMOST = 0x00040000
+
+
+#Параметры запуска программы через ShellExecuteEx: что запускать, от чьего имени и как показать окно
+class SHELLEXECUTEINFOW(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", ctypes.c_uint32),
+        ("fMask", ctypes.c_uint32),
+        ("hwnd", ctypes.c_void_p),
+        ("lpVerb", ctypes.c_wchar_p),
+        ("lpFile", ctypes.c_wchar_p),
+        ("lpParameters", ctypes.c_wchar_p),
+        ("lpDirectory", ctypes.c_wchar_p),
+        ("nShow", ctypes.c_int),
+        ("hInstApp", ctypes.c_void_p),
+        ("lpIDList", ctypes.c_void_p),
+        ("lpClass", ctypes.c_wchar_p),
+        ("hkeyClass", ctypes.c_void_p),
+        ("dwHotKey", ctypes.c_uint32),
+        ("hIconOrMonitor", ctypes.c_void_p),
+        ("hProcess", ctypes.c_void_p),
+    ]
+
+
+#Запуск программы через оболочку Windows (режим runas - с запросом прав администратора)
+shell32.ShellExecuteExW.restype = wintypes.BOOL
+shell32.ShellExecuteExW.argtypes = [ctypes.POINTER(SHELLEXECUTEINFOW)]
+
+#Ожидание завершения процесса (ждём, пока закроется установщик)
+kernel32.WaitForSingleObject.restype = wintypes.DWORD
+kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, wintypes.DWORD]
+
+#Закрытие дескриптора процесса после ожидания
+kernel32.CloseHandle.restype = wintypes.BOOL
+kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+
+
+#Конфиги и глобальные переменные
+
+#Папки: BASE_DIR - где лежит код, APP_DIR - где лежит exe (после сборки они могут отличаться)
+#Именно от них ищется установщик драйвера bin/driver.exe
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+APP_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else BASE_DIR
 
+#Файл настроек (лежит в папке AppData)
 CONFIG_PATH = os.path.join(os.environ["APPDATA"], "MoJoyDCS_config.json")
 
+#Блокировка для безопасного доступа к настройкам и положению стика из разных потоков
 LOCK = threading.Lock()
 
+#Состояние программы: включена ли эмуляция, чувствительность и назначенные клавиши
+#Формат клавиш: kbd:название - клавиатура, ms:номер - кнопка мыши
 STATE = {
     "enabled": False,
     "sensitivity": 0.0,
@@ -210,32 +297,48 @@ STATE = {
     "bind_reset": "ms:3",
 }
 
+#Текущее положение левого стика геймпада (от -1.0 до 1.0)
 STICK_X = 0.0
 STICK_Y = 0.0
 
+#Окно интерфейса, ссылки на горячие клавиши и данные для назначения новой клавиши
 WINDOW = None
 TOGGLE_HOTKEY_HANDLE = None
 RESET_HOTKEY_HANDLE = None
 CAPTURING_BIND = None
 CAPTURED_KEY = None
 
+#Размер экрана и его центр (курсор возвращается в центр на каждом шаге цикла)
 SCREEN_W = user32.GetSystemMetrics(0)
 SCREEN_H = user32.GetSystemMetrics(1)
 CENTER_X = SCREEN_W // 2
 CENTER_Y = SCREEN_H // 2
 
+#Виртуальный геймпад и модуль vgamepad: создаются только после того, как драйвер найден
 gamepad = None
+vg = None
+
+#Сколько секунд показывать крутилку поиска драйвера (сама проверка проходит мгновенно)
+SEARCH_DELAY_SECONDS = 1.5
+#Ответ пользователя на вопрос об установке драйвера и флаг "запуск уже начат"
+ANSWER_EVENT = threading.Event()
+ANSWER_VALUE = False
+BOOT_STARTED = False
 
 
-# Вспомогательные функции
+#Вспомогательные функции
+
+#Ограничивает значение диапазоном от min_value до max_value
 def clamp(value, min_value, max_value):
     return max(min_value, min(max_value, value))
 
 
+#Перемещает курсор в указанную точку экрана
 def set_cursor_pos(x, y):
     user32.SetCursorPos(int(x), int(y))
 
 
+#Загружает настройки из файла (понимает и старый формат с toggle_key)
 def load_config():
     if os.path.exists(CONFIG_PATH):
         try:
@@ -252,6 +355,7 @@ def load_config():
             pass
 
 
+#Сохраняет настройки в файл
 def save_config():
     with LOCK:
         data = {
@@ -266,6 +370,7 @@ def save_config():
         pass
 
 
+#Выполняет JS-код в окне интерфейса (ошибки игнорируются)
 def notify_js(code):
     if WINDOW is not None:
         try:
@@ -274,7 +379,14 @@ def notify_js(code):
             pass
 
 
-# Эмуляция клавиш
+#Показывает окно с ошибкой поверх остальных окон
+def show_error(text):
+    user32.MessageBoxW(None, text, "MoJoy DCS — ошибка запуска", MB_ICONERROR | MB_TOPMOST)
+
+
+#Эмуляция клавиш
+
+#Нажимает или отпускает клавишу по скан-коду
 def send_scan(scan_code, key_up):
     inp = SENDINPUT_STRUCT()
     inp.type = INPUT_KEYBOARD
@@ -286,6 +398,8 @@ def send_scan(scan_code, key_up):
     user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(SENDINPUT_STRUCT))
 
 
+#Эмулирует нажатие Alt+C (вызывается при каждом включении и отключении)
+#На время отправки горячие клавиши снимаются, потом включаются снова
 def send_alt_c():
     disable_hotkeys()
     send_scan(SCAN_LEFT_ALT, False)
@@ -298,7 +412,9 @@ def send_alt_c():
     apply_hotkeys()
 
 
-# Управление горячими клавишами
+#Управление горячими клавишами
+
+#Включает или отключает эмуляцию, отправляет Alt+C и обновляет переключатель в интерфейсе
 def set_enabled(value):
     with LOCK:
         STATE["enabled"] = value
@@ -306,12 +422,14 @@ def set_enabled(value):
     threading.Thread(target=notify_js, args=("setEnabledUI(" + json.dumps(value) + ")",), daemon=True).start()
 
 
+#Срабатывает по кнопке включения: переключает состояние на противоположное
 def on_toggle_pressed():
     with LOCK:
         new_value = not STATE["enabled"]
     set_enabled(new_value)
 
 
+#Снимает все зарегистрированные горячие клавиши
 def disable_hotkeys():
     global TOGGLE_HOTKEY_HANDLE, RESET_HOTKEY_HANDLE
     if TOGGLE_HOTKEY_HANDLE:
@@ -328,10 +446,12 @@ def disable_hotkeys():
         RESET_HOTKEY_HANDLE = None
 
 
+#Регистрирует горячие клавиши из настроек (старые сначала снимаются)
+#Здесь только клавиатурные бинды, кнопки мыши ловятся через Raw Input
 def apply_hotkeys():
     global TOGGLE_HOTKEY_HANDLE, RESET_HOTKEY_HANDLE
     disable_hotkeys()
-    
+
     tb = STATE.get("bind_toggle", "")
     if tb.startswith("kbd:"):
         try:
@@ -347,6 +467,8 @@ def apply_hotkeys():
             pass
 
 
+#Ждёт, пока пользователь нажмёт новую клавишу или кнопку мыши, назначает её и сохраняет настройки
+#Работает в отдельном потоке
 def capture_key_thread(bind_name):
     global CAPTURING_BIND, CAPTURED_KEY
     if CAPTURING_BIND is not None:
@@ -361,6 +483,7 @@ def capture_key_thread(bind_name):
     CAPTURED_KEY = None
     CAPTURING_BIND = bind_name
 
+    #Хук клавиатуры: запоминает первую нажатую клавишу
     def kb_hook(e):
         global CAPTURED_KEY, CAPTURING_BIND
         if CAPTURING_BIND and e.event_type == 'down' and e.name is not None:
@@ -395,7 +518,10 @@ def capture_key_thread(bind_name):
     notify_js(f"updateBindUI({json.dumps(bind_name)}, {json.dumps(result_key)})")
 
 
-# Raw Input
+#Raw Input
+
+#Двигает стик на величину смещения мыши (ось Y инвертирована)
+#Коэффициент зависит от чувствительности и считается по-разному для положительных и отрицательных значений
 def on_raw_mouse(dx, dy):
     global STICK_X, STICK_Y
     with LOCK:
@@ -410,6 +536,7 @@ def on_raw_mouse(dx, dy):
         STICK_Y = clamp(STICK_Y - dy * factor, -1.0, 1.0)
 
 
+#Возвращает стик в центр
 def recenter_stick():
     global STICK_X, STICK_Y
     with LOCK:
@@ -417,6 +544,7 @@ def recenter_stick():
         STICK_Y = 0.0
 
 
+#Проверяет по флагам Raw Input, нажата ли кнопка мыши (1 - ЛКМ, 2 - ПКМ, 3 - СКМ, 4 и 5 - боковые)
 def check_mouse_down(flags, btn):
     if btn == 1 and (flags & 0x0001): return True
     if btn == 2 and (flags & 0x0004): return True
@@ -426,6 +554,8 @@ def check_mouse_down(flags, btn):
     return False
 
 
+#Разбирает сообщение WM_INPUT от мыши: при назначении клавиши запоминает нажатую кнопку,
+#иначе проверяет бинды включения и сброса, затем передаёт смещение мыши в on_raw_mouse
 def handle_raw_input(lparam):
     global CAPTURING_BIND, CAPTURED_KEY
     hraw = ctypes.c_void_p(lparam & PTR_MASK)
@@ -437,10 +567,10 @@ def handle_raw_input(lparam):
     if user32.GetRawInputData(hraw, RID_INPUT, buf, ctypes.byref(size), ctypes.sizeof(RAWINPUTHEADER)) != size.value:
         return
     raw = ctypes.cast(buf, ctypes.POINTER(RAWINPUT)).contents
-    
+
     if raw.header.dwType == RIM_TYPEMOUSE:
         flags = raw.mouse.buttons.usButtonFlags
-        
+
         if CAPTURING_BIND:
             if flags & 0x0001:
                 CAPTURED_KEY = "ms:1"
@@ -462,19 +592,22 @@ def handle_raw_input(lparam):
             if tb.startswith("ms:"):
                 if check_mouse_down(flags, int(tb[3:])):
                     on_toggle_pressed()
-            
+
             rb = STATE.get("bind_reset", "")
             if rb.startswith("ms:"):
                 if check_mouse_down(flags, int(rb[3:])):
                     recenter_stick()
-                    
+
         on_raw_mouse(raw.mouse.lLastX, raw.mouse.lLastY)
 
 
+#Поток со скрытым окном и собственным циклом сообщений
+#Получает Raw Input от мыши, даже когда окно программы не в фокусе
 def raw_input_thread():
     hinstance = kernel32.GetModuleHandleW(None)
     class_name = "MoJoyRawInputClass"
 
+    #Оконная процедура: на сообщение WM_INPUT передаёт данные в handle_raw_input
     def wnd_proc(hwnd, msg, wparam, lparam):
         if msg == WM_INPUT:
             handle_raw_input(lparam)
@@ -503,7 +636,7 @@ def raw_input_thread():
         0, 0, 0, 0,
         HWND_MESSAGE, None, hinstance, None,
     )
-    
+
     if not hwnd:
         return
 
@@ -523,7 +656,10 @@ def raw_input_thread():
         user32.DispatchMessageW(ctypes.byref(msg))
 
 
-# Обновление геймпада
+#Обновление геймпада
+
+#Главный цикл (каждые 8 мс): пока эмуляция включена, держит курсор в центре
+#и отправляет положение стика в виртуальный геймпад
 def input_loop():
     while True:
         with LOCK:
@@ -537,9 +673,13 @@ def input_loop():
         time.sleep(0.008)
 
 
-# Очистка при выходе
+#Очистка при выходе
+
+#При выходе снимает хуки клавиатуры и обнуляет стик (если программа успела запуститься)
 @atexit.register
 def cleanup():
+    if gamepad is None:
+        return
     try:
         keyboard.unhook_all()
     except Exception:
@@ -551,8 +691,109 @@ def cleanup():
         pass
 
 
-# API для UI
+#Проверка и установка драйвера ViGEmBus
+
+#Ищет bin/driver.exe рядом с программой или рядом со скриптом; возвращает путь или None
+def find_installer():
+    for base in (APP_DIR, BASE_DIR):
+        path = os.path.join(base, "bin", "driver.exe")
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+#Запускает bin/driver.exe от имени администратора (появится запрос UAC) и ждёт, пока установщик закроется
+#Если файла нет или запуск не удался, показывает ошибку (отмена в UAC ошибкой не считается)
+def run_installer():
+    path = find_installer()
+    if path is None:
+        show_error(
+            "Не найден установщик драйвера:\n"
+            + os.path.join(APP_DIR, "bin", "driver.exe")
+            + "\n\nПоложите driver.exe в папку bin рядом с программой."
+        )
+        return
+    info = SHELLEXECUTEINFOW()
+    info.cbSize = ctypes.sizeof(SHELLEXECUTEINFOW)
+    info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC
+    info.lpVerb = "runas"
+    info.lpFile = path
+    info.lpDirectory = os.path.dirname(path)
+    info.nShow = SW_SHOWNORMAL
+    if not shell32.ShellExecuteExW(ctypes.byref(info)):
+        if ctypes.get_last_error() != ERROR_CANCELLED:
+            show_error("Не удалось запустить установщик драйвера:\n" + path)
+        return
+    if info.hProcess:
+        kernel32.WaitForSingleObject(info.hProcess, INFINITE)
+        kernel32.CloseHandle(info.hProcess)
+
+
+#Ищет драйвер: ждёт SEARCH_DELAY_SECONDS (чтобы была видна крутилка) и пробует подключить vgamepad
+#vgamepad при импорте подключается к драйверу: ошибка VIGEM_ERROR - драйвера нет (False),
+#успех - драйвер есть (True); любая другая ошибка не про драйвер, её показываем как есть
+def search_driver():
+    global vg
+    time.sleep(SEARCH_DELAY_SECONDS)
+    try:
+        import vgamepad
+    except Exception as e:
+        if "VIGEM_ERROR" in str(e):
+            return False
+        raise
+    vg = vgamepad
+    return True
+
+
+#Показывает в интерфейсе крутилку с указанной надписью
+def show_search(text):
+    notify_js("showSearch(" + json.dumps(text) + ")")
+
+
+#Показывает вопрос об установке драйвера и ждёт ответа: True - "Да", False - "Нет"
+def ask_install():
+    ANSWER_EVENT.clear()
+    notify_js("showPrompt()")
+    ANSWER_EVENT.wait()
+    return ANSWER_VALUE
+
+
+#Запускает саму программу: создаёт геймпад, загружает настройки, включает горячие клавиши и потоки ввода
+def start_app():
+    global gamepad
+    gamepad = vg.VX360Gamepad()
+    load_config()
+    apply_hotkeys()
+    threading.Thread(target=raw_input_thread, daemon=True).start()
+    threading.Thread(target=input_loop, daemon=True).start()
+
+
+#Сценарий запуска: поиск драйвера -> если его нет, вопрос об установке -> установка -> повторный поиск
+#Когда драйвер найден, запускается сама программа
+#Ответ "Нет" закрывает программу; любая ошибка показывается в окне и тоже закрывает программу
+def boot_sequence():
+    try:
+        while True:
+            show_search("Поиск драйвера ViGEmBus...")
+            if search_driver():
+                break
+            if not ask_install():
+                WINDOW.destroy()
+                return
+            show_search("Установка драйвера...")
+            run_installer()
+        start_app()
+        notify_js("showMain()")
+    except Exception:
+        show_error(traceback.format_exc())
+        WINDOW.destroy()
+
+
+#API для UI
+
+#Методы этого класса интерфейс вызывает из JavaScript через window.pywebview.api
 class Api:
+    #Текущее состояние программы для заполнения интерфейса
     def get_state(self):
         with LOCK:
             return {
@@ -562,22 +803,26 @@ class Api:
                 "bind_reset": STATE["bind_reset"],
             }
 
+    #Сохраняет новое значение чувствительности
     def set_sensitivity(self, value):
         with LOCK:
             STATE["sensitivity"] = float(value)
         save_config()
         return True
 
+    #Переключает эмуляцию (вкл/выкл) и возвращает новое состояние
     def toggle_enabled(self):
         with LOCK:
             new_value = not STATE["enabled"]
         set_enabled(new_value)
         return new_value
 
+    #Запускает назначение новой клавиши в отдельном потоке
     def start_key_capture(self, bind_name):
         threading.Thread(target=capture_key_thread, args=(bind_name,), daemon=True).start()
         return True
 
+    #Сбрасывает настройки к значениям по умолчанию и возвращает их интерфейсу
     def reset_config(self):
         with LOCK:
             STATE["sensitivity"] = 0.0
@@ -588,8 +833,25 @@ class Api:
         save_config()
         return state
 
+    #Вызывается интерфейсом, когда страница готова: запускает сценарий запуска (один раз)
+    def boot(self):
+        global BOOT_STARTED
+        with LOCK:
+            if BOOT_STARTED:
+                return False
+            BOOT_STARTED = True
+        threading.Thread(target=boot_sequence, daemon=True).start()
+        return True
 
-# UI
+    #Принимает ответ Да/Нет на вопрос об установке драйвера и будит сценарий запуска
+    def driver_answer(self, value):
+        global ANSWER_VALUE
+        ANSWER_VALUE = bool(value)
+        ANSWER_EVENT.set()
+        return True
+
+
+#Интерфейс
 HTML_CONTENT = """<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -844,11 +1106,128 @@ HTML_CONTENT = """<!DOCTYPE html>
     background: transparent;
     color: #ef4444;
   }
+
+  /*Переключение экранов: скрытый экран не показывается*/
+  .hidden {
+    display: none !important;
+  }
+
+  /*Экран поиска драйвера: общая раскладка экранов, крутилка и надпись под ней*/
+  .center-view {
+    width: 420px;
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .spinner {
+    width: 56px;
+    height: 56px;
+    border: 5px solid var(--border-color);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /*Если в системе отключены анимации, крутилка вращается медленнее, но не останавливается*/
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      animation-duration: 2.4s;
+    }
+  }
+
+  .status-text {
+    margin-top: 24px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  /*Вопрос об установке драйвера: текст и кнопки Да/Нет*/
+  .prompt-text {
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--text-main);
+  }
+
+  .prompt-buttons {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    margin-top: 28px;
+  }
+
+  .btn-choice {
+    flex: 1;
+    padding: 12px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-choice:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 4px var(--focus-ring);
+  }
+
+  .btn-yes {
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #ffffff;
+  }
+
+  .btn-yes:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
+
+  /*Кнопка Нет: красная, стиль как у кнопки Сбросить конфигурацию*/
+  .btn-no {
+    border: 1px solid #ef4444;
+    background: #ef4444;
+    color: #ffffff;
+  }
+
+  .btn-no:hover {
+    background: transparent;
+    color: #ef4444;
+  }
+
+  .btn-no:focus-visible {
+    box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.2);
+  }
 </style>
 </head>
 <body>
 
-  <div class="app-container" id="mainView">
+  <!--Экран поиска драйвера: крутилка и надпись под ней-->
+  <div class="center-view" id="searchView">
+    <div class="spinner"></div>
+    <p class="status-text" id="searchText">Поиск драйвера ViGEmBus...</p>
+  </div>
+
+  <!--Вопрос об установке драйвера: кнопки Да и Нет-->
+  <div class="center-view hidden" id="promptView">
+    <p class="prompt-text">Необходимого драйвера для работы программы не найдено.<br><br>Установить сейчас?</p>
+    <div class="prompt-buttons">
+      <button class="btn-choice btn-yes" onclick="onDriverAnswer(true)">Да</button>
+      <button class="btn-choice btn-no" onclick="onDriverAnswer(false)">Нет</button>
+    </div>
+  </div>
+
+  <!--Основной экран программы-->
+  <div class="app-container hidden" id="mainView">
     <div class="header">
       <div class="title-group">
         <h1>MoJoy DCS</h1>
@@ -902,6 +1281,7 @@ HTML_CONTENT = """<!DOCTYPE html>
   </div>
 
 <script>
+//Превращает код клавиши в читаемое название (kbd:caps lock -> Caps Lock, ms:3 -> СКМ (Mouse 3))
 function formatKey(keyStr) {
   if (!keyStr) return "-";
   if (keyStr.startsWith("kbd:")) {
@@ -919,10 +1299,12 @@ function formatKey(keyStr) {
   return keyStr;
 }
 
+//Ставит переключатель в положение включено или выключено
 function setEnabledUI(enabled) {
   document.getElementById("mainToggle").checked = enabled;
 }
 
+//Показывает назначенную клавишу и возвращает кнопку Изменить в обычное состояние
 function updateBindUI(bindName, keyStr) {
   const nameEl = document.getElementById(bindName + "_name");
   const btnEl = document.getElementById(bindName + "_btn");
@@ -933,16 +1315,20 @@ function updateBindUI(bindName, keyStr) {
   }
 }
 
+//Ползунок чувствительности: обновляет число рядом с ним и передаёт значение в Python
 async function onSensChange(value) {
   document.getElementById("sensVal").textContent = Number(value).toFixed(1);
   await window.pywebview.api.set_sensitivity(value);
 }
 
+//Клик по переключателю: Python включает или отключает эмуляцию, интерфейс показывает итоговое состояние
 async function onToggleClick() {
   const enabled = await window.pywebview.api.toggle_enabled();
   setEnabledUI(enabled);
 }
 
+//Кнопка Изменить: показывает ожидание и просит Python запомнить
+//следующую нажатую клавишу или кнопку мыши
 async function onRebindClick(bindName) {
   document.getElementById(bindName + "_name").textContent = "...";
   const btn = document.getElementById(bindName + "_btn");
@@ -951,6 +1337,7 @@ async function onRebindClick(bindName) {
   await window.pywebview.api.start_key_capture(bindName);
 }
 
+//Кнопка Сбросить конфигурацию: Python возвращает настройки по умолчанию, интерфейс их показывает
 async function onResetConfigClick() {
   const state = await window.pywebview.api.reset_config();
   document.getElementById("sens").value = state.sensitivity;
@@ -959,6 +1346,7 @@ async function onResetConfigClick() {
   updateBindUI('bind_reset', state.bind_reset);
 }
 
+//Заполняет основной экран сохранёнными настройками (вызывается из showMain)
 async function init() {
   const state = await window.pywebview.api.get_state();
 
@@ -971,30 +1359,63 @@ async function init() {
   updateBindUI('bind_reset', state.bind_reset);
 }
 
-let _mojoyInited = false;
-function initOnce() {
-  if (_mojoyInited) return;
-  _mojoyInited = true;
+//Экраны интерфейса: поиск драйвера, вопрос об установке и основной экран
+const VIEWS = ["searchView", "promptView", "mainView"];
+
+//Показывает один экран по имени и прячет остальные
+function showView(name) {
+  VIEWS.forEach(id => {
+    document.getElementById(id).classList.toggle("hidden", id !== name);
+  });
+}
+
+//Экран с крутилкой и надписью (вызывается из Python)
+function showSearch(text) {
+  document.getElementById("searchText").textContent = text;
+  showView("searchView");
+}
+
+//Экран с вопросом об установке драйвера (вызывается из Python)
+function showPrompt() {
+  showView("promptView");
+}
+
+//Основной экран (вызывается из Python, когда драйвер найден и программа запущена)
+function showMain() {
+  showView("mainView");
   init();
 }
 
-window.addEventListener("pywebviewready", initOnce);
-if (window.pywebview) {
-  initOnce();
+//Кнопки Да и Нет: при Да сразу показывает крутилку установки, затем передаёт ответ в Python
+async function onDriverAnswer(answer) {
+  if (answer) showSearch("Установка драйвера...");
+  await window.pywebview.api.driver_answer(answer);
 }
+
+//Флаг: интерфейс уже сообщил Python о готовности (защита от двойного вызова)
+let _mojoyInited = false;
+//Один раз сообщает Python, что интерфейс готов: после этого Python начинает поиск драйвера
+function initOnce() {
+  if (_mojoyInited) return;
+  if (!(window.pywebview && window.pywebview.api)) return;
+  _mojoyInited = true;
+  window.pywebview.api.boot();
+}
+
+//Запуск: ждём события pywebviewready или стартуем сразу, если pywebview уже готов
+window.addEventListener("pywebviewready", initOnce);
+initOnce();
 </script>
 </body>
 </html>"""
 
-# Создание окна
+
+#Создание окна
+
+#Создаёт окно с интерфейсом. Дальше всё запускается из самого интерфейса (Api.boot),
+#когда страница загрузится
 def main():
-    global WINDOW, gamepad
-    gamepad = vg.VX360Gamepad()
-    load_config()
-    apply_hotkeys()
-    threading.Thread(target=raw_input_thread, daemon=True).start()
-    threading.Thread(target=input_loop, daemon=True).start()
-    
+    global WINDOW
     WINDOW = webview.create_window(
         "MoJoy DCS",
         html=HTML_CONTENT,
@@ -1006,6 +1427,7 @@ def main():
     webview.start()
 
 
+#Точка входа: при любой ошибке показываем окно с её текстом и выходим
 if __name__ == "__main__":
     try:
         main()
