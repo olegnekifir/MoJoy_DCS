@@ -45,7 +45,7 @@
 Сборка в `.exe` файл производилась с помощью **Nuitka** следующей командой:
 
 ```cmd
-python -m nuitka --onefile --windows-console-mode=disable --windows-icon-from-ico=logo.ico --include-data-files="C:\Users\4227~1\AppData\Local\Programs\Python\Python312\Lib\site-packages\vgamepad\win\vigem\client\x64\ViGEmClient.dll=vgamepad/win/vigem/client/x64/ViGEmClient.dll" --include-data-files="C:\MoJoy_DCS\bin\driver.exe=bin/driver.exe" --remove-output "MoJoy_DCS.py"
+python -m nuitka --onefile --windows-console-mode=disable --windows-icon-from-ico=logo.ico --include-data-files="C:\Users\4227~1\AppData\Local\Programs\Python\Python312\Lib\site-packages\vgamepad\win\vigem\client\x64\ViGEmClient.dll=vgamepad/win/vigem/client/x64/ViGEmClient.dll" --include-data-files="C:\MoJoy_DCS\bin\driver.exe=bin/driver.exe" --remove-output "main.py"
 ```
 
 Измените пожалуйста путь до файла-установщика ViGEmBus "driver.exe" Он у вас будет отличаться и также если не собирается .exe-файл, проверьте где находится файл библиотеки через Консоль (Терминале) данной командой:
