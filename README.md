@@ -55,4 +55,5 @@ python -c "import sys; from pathlib import Path; print(*[p for p in [next(Path(s
 ```
 
 Путь на конце должен выглядеть так: *vgamepad\win\vigem\client\x64\ViGEmClient.dll*
+
 И также пишите команду установки в терминале (Консоли) в папке, где находится main.py!
